@@ -1,0 +1,126 @@
+import torch
+from typing import Callable, Optional, Literal, Union
+
+__all__ = ['VectorVisibilityGraph']
+
+VisibilityMethod = Literal["natural", "horizontal"]
+ProjectionMethod = Literal["dot", "cosine", "custom"]
+WeightFuncType = Callable[[torch.Tensor, torch.Tensor, float, float], torch.Tensor]
+ProjectionFuncType = Callable[[torch.Tensor], torch.Tensor]
+
+
+class VectorVisibilityGraph:
+    def __init__(
+        self,
+        method: VisibilityMethod = "natural",
+        weight_func: WeightFuncType = lambda x, y, _, __: torch.tensor(1.0, device=x.device),
+        penetrable_limit: int = 0,
+        directed: bool = False,
+        projection_method: ProjectionMethod = "dot",
+        custom_projection_func: Optional[ProjectionFuncType] = None,
+    ):
+        if method not in {"natural", "horizontal"}:
+            raise ValueError(f"Unsupported method: {method}")
+        if projection_method == "custom" and custom_projection_func is None:
+            raise ValueError("You must provide a custom_projection_func if projection_method is 'custom'")
+
+        self.method = method
+        self.weight_func = weight_func
+        self.penetrable_limit = penetrable_limit
+        self.directed = directed
+        self.projection_method = projection_method
+        self.custom_projection_func = custom_projection_func
+
+    def compute(
+        self,
+        multivariate: Union[torch.Tensor, list[torch.Tensor]],
+        timeline: Optional[torch.Tensor] = None,
+        compiled: bool = False,
+    ) -> torch.Tensor:
+        """Compute adjacency matrices.
+
+        multivariate: Tensor of shape [T, D] or [B, T, D]
+        Returns: [T, T] or [B, T, T]
+        """
+        if multivariate.ndim == 2:
+            multivariate = multivariate.unsqueeze(0)  # [1, T, D]
+
+        if timeline is None:
+            timeline = torch.arange(multivariate.shape[1], device=multivariate.device, dtype=torch.float32)
+        if timeline.ndim == 1:
+            timeline = timeline.unsqueeze(0).expand(multivariate.shape[0], -1)  # [B, T]
+
+        compute_fn = self._compute_batch
+        if compiled:
+            compute_fn = torch.compile(compute_fn, mode="default", fullgraph=False)
+
+        return compute_fn(multivariate, timeline)
+
+    def _get_visibility_func(self) -> Callable:
+        return self._is_visible_natural if self.method == "natural" else self._is_visible_horizontal
+
+    def _get_projection(self, x: torch.Tensor) -> torch.Tensor:
+        if self.projection_method == "dot":
+            return torch.matmul(self._unitarize(x), x.transpose(1, 2))  # [B, T, T]
+        elif self.projection_method == "cosine":
+            x_norm = self._unitarize(x)
+            return torch.matmul(x_norm, x_norm.transpose(1, 2))
+        elif self.projection_method == "custom":
+            return self.custom_projection_func(x)
+        else:
+            raise ValueError(f"Unknown projection method: {self.projection_method}")
+
+    def _unitarize(self, matrix: torch.Tensor) -> torch.Tensor:
+        norms = matrix.norm(dim=-1, keepdim=True)
+        return matrix / norms
+
+    def _compute_batch(self, multivariate: torch.Tensor, timeline: torch.Tensor) -> torch.Tensor:
+        """Compute adjacency for batch of sequences. Shapes:
+        - multivariate: [B, T, D]
+        - timeline: [B, T]
+        """
+        B, T, D = multivariate.shape
+        device = multivariate.device
+        adj_batch = torch.zeros(B, T, T, device=device)
+        projections = self._get_projection(multivariate)  # [B, T, T]
+        visibility_func = self._get_visibility_func()
+
+        for b in range(B):
+            proj = projections[b]
+            series = multivariate[b]
+            time = timeline[b]
+            for i in range(T - 1):
+                for j in range(i + 1, T):
+                    if visibility_func(proj, time, i, j, self.penetrable_limit):
+                        adj_batch[b, i, j] = self.weight_func(series[i], series[j], time[i], time[j])
+
+        return adj_batch if self.directed else adj_batch + adj_batch.transpose(1, 2)
+
+    @staticmethod
+    def _is_visible_natural(
+        projection: torch.Tensor,
+        timeline: torch.Tensor,
+        i: int,
+        j: int,
+        penetrable_limit: int = 0,
+    ) -> bool:
+        if i >= j:
+            return False
+        middle_values = projection[i+1:j]
+        middle_times = timeline[i+1:j]
+        lhs = (middle_values - projection[j]) / (timeline[j] - middle_times)
+        rhs = (projection[i] - projection[j]) / (timeline[j] - timeline[i])
+        return (lhs >= rhs).sum().item() <= penetrable_limit
+
+    @staticmethod
+    def _is_visible_horizontal(
+        projection: torch.Tensor,
+        _timeline: torch.Tensor,
+        i: int,
+        j: int,
+        penetrable_limit: int = 0,
+    ) -> bool:
+        if i >= j:
+            return False
+        middle = projection[i+1:j]
+        return (middle >= min(projection[i], projection[j])).sum().item() <= penetrable_limit
