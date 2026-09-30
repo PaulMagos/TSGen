@@ -138,27 +138,63 @@ def imputation_table(table) -> str:
                       r"\bottomrule", r"\end{tabular}}", r"\end{table}", ""])
 
 
-COMPARISONS = [  # (question, dataset, a, b, metric)
-    *[("RQ1 VG vs none", ds, "gtm", "mdn", m) for ds in DATASETS for m in ("wasserstein", "mmd_rbf", "acf_distance", "discriminative_score")],
-    *[("RQ1 VG vs chain", ds, "gtm", "gtm-chain", m) for ds in DATASETS for m in ("wasserstein", "acf_distance")],
-    *[("RQ1 VG vs complete", ds, "gtm", "gtm-complete", m) for ds in DATASETS for m in ("wasserstein", "acf_distance")],
-    *[("RQ2 static graph vs none", ds, "sgtm", "gtm", "cross_corr_distance") for ds in DATASETS],
-    *[("RQ2 static vs random graph", ds, "sgtm", "sgtm-randgraph", "cross_corr_distance") for ds in DATASETS],
-    *[("RQ2 learned vs static graph", ds, "asgtm", "sgtm", "cross_corr_distance") for ds in DATASETS],
-    *[("best neural vs VAR", ds, a, "var", m) for ds, a in (("Synthetic", "gtm"), ("Exchange", "asgtm"), ("AirQuality", "gtm-h128"))
-      for m in ("wasserstein", "mmd_rbf", "acf_distance", "cross_corr_distance")],
-]
+G = "generation/vs_train/"
+NEURAL = ("mdn", "gtm", "sgtm", "asgtm", "mdn-h128", "gtm-h128", "asgtm-h128", "mdn-h256", "gtm-h256", "asgtm-h256")
+
+
+def best_neural(table, ds: str) -> str:
+    """Neural generator with the lowest mean W1 against training windows."""
+    scored = [(values(table, ds, c, G + "wasserstein").mean(), c) for c in NEURAL
+              if len(values(table, ds, c, G + "wasserstein"))]
+    return min(scored)[1]
+
+
+def comparison_list(table) -> list[tuple[str, str, str, str, str]]:
+    """(question, dataset, A, B, full metric key); lower is better for every metric."""
+    c: list = []
+    for ds in DATASETS:
+        for m in ("wasserstein", "mmd_rbf", "acf_distance", "discriminative_score", "vg_divergence"):
+            c.append(("RQ1 VG vs none", ds, "gtm", "mdn", G + m))
+        c += [("RQ1 VG vs none", ds, "gtm", "mdn", k) for k in ("prediction/mae", "prediction/crps")]
+        for ctrl in ("gtm-chain", "gtm-complete"):
+            c += [(f"RQ1 VG vs {ctrl[4:]}", ds, "gtm", ctrl, G + m) for m in ("wasserstein", "acf_distance")]
+        c += [("RQ2 static graph vs none", ds, "sgtm", "gtm", G + "cross_corr_distance"),
+              ("RQ2 static vs random graph", ds, "sgtm", "sgtm-randgraph", G + "cross_corr_distance"),
+              ("RQ2 learned vs static graph", ds, "asgtm", "sgtm", G + "cross_corr_distance")]
+        best = best_neural(table, ds)
+        c += [(f"best neural ({best}) vs VAR", ds, best, "var", G + m)
+              for m in ("wasserstein", "mmd_rbf", "acf_distance", "cross_corr_distance", "vg_divergence")]
+    # level parameterisation: chosen (auto) vs the other one
+    for ds, other in (("AirQuality", "asgtm-relative"), ("Synthetic", "asgtm-relative"), ("Exchange", "asgtm-absolute")):
+        c += [("A5 parameterisation (auto vs other)", ds, "asgtm", other, k)
+              for k in ("prediction/mae", G + "wasserstein", G + "mmd_rbf", G + "acf_distance", G + "vg_divergence")]
+    # imputation
+    for ds, prob in (("AirQuality", "eval_mask"), ("Synthetic", "block"), ("Synthetic", "point"),
+                     ("Exchange", "block"), ("Exchange", "point")):
+        for a in ("gtm", "sgtm", "asgtm"):
+            c += [(f"imputation {prob}", ds, a, b, f"imputation/{prob}/mae") for b in ("locf", "interp", "lstm", "mdn")]
+    # capacity: each larger budget vs the reference width 64
+    for ds in ("AirQuality", "Exchange"):
+        for m in ("mdn", "gtm", "asgtm"):
+            for h in ("h128", "h256"):
+                c += [(f"capacity {h} vs 64", ds, f"{m}-{h}", m, k)
+                      for k in ("prediction/mae", G + "wasserstein", G + "mmd_rbf", G + "cross_corr_distance")]
+    return c
 
 
 def comparisons(table) -> str:
-    out = ["| question | dataset | A | B | metric | mean A | mean B | Welch p | verdict |", "|---|---|---|---|---|---|---|---|---|"]
-    for q, ds, a, b, m in COMPARISONS:
-        va, vb = values(table, ds, a, "generation/vs_train/" + m), values(table, ds, b, "generation/vs_train/" + m)
+    out = ["| question | dataset | A | B | metric | mean A | mean B | Welch p | verdict |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    for q, ds, a, b, key in comparison_list(table):
+        va, vb = values(table, ds, a, key), values(table, ds, b, key)
         if len(va) < 2 or len(vb) < 2:
             continue
-        p = stats.ttest_ind(va, vb, equal_var=False).pvalue
+        if va.std() + vb.std() == 0:
+            p = 0.0 if va.mean() != vb.mean() else 1.0
+        else:
+            p = stats.ttest_ind(va, vb, equal_var=False).pvalue
         verdict = ("A better" if va.mean() < vb.mean() else "B better") if p < 0.05 else "no significant difference"
-        out.append(f"| {q} | {ds} | {a} | {b} | {m} | {va.mean():.4f} | {vb.mean():.4f} | {p:.3g} | {verdict} |")
+        out.append(f"| {q} | {ds} | {a} | {b} | {key} | {va.mean():.4f} | {vb.mean():.4f} | {p:.3g} | {verdict} |")
     return "\n".join(out)
 
 
