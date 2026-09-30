@@ -20,3 +20,7 @@ ViT_torchviz.png
 lightning_logs/
 
 *.csv
+# fixed-core runs
+data_cache/
+results/
+.pytest_cache/

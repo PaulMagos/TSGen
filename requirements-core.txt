@@ -1,0 +1,11 @@
+# Fixed methodology core (tsgen/, run_experiment.py). Legacy code keeps requirements.txt.
+torch>=2.3
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13
+scikit-learn>=1.5
+statsmodels>=0.14
+tables>=3.9
+pytest>=8
+# visibility graphs: pip install pyrustygraph>=0.5.1  (or build from github.com/PaulMagos/rustygraph)
+pyrustygraph>=0.5.1
