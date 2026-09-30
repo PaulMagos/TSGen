@@ -5,8 +5,7 @@
 
 Models: mdn gtm sgtm asgtm (mixture generators, parameter-matched to asgtm),
 lstm rnn (point forecasters), persistence linear var locf interp (baselines),
-dgan par (external generation baselines; scripts/install_baselines.sh),
-grin (non-causal graph imputer, re-implemented from Cini et al. 2022).
+dgan par (external generation baselines; scripts/install_baselines.sh).
 Scores are on the train-min-max scale (the thesis' normalised scale).
 """
 
@@ -23,7 +22,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from tsgen import baselines, data, external, graphs, grin, inference, metrics, models, train
+from tsgen import baselines, data, external, graphs, inference, metrics, models, train
 from tsgen.tracking import Tracker
 
 GENERATORS = tuple(models.VARIANTS)
@@ -31,9 +30,7 @@ FORECASTERS = ("lstm", "rnn")
 PREDICTION_BASELINES = ("persistence", "linear", "var")
 IMPUTATION_BASELINES = ("locf", "interp")
 GENERATION_BASELINES = ("dgan", "par")
-IMPUTATION_MODELS = ("grin",)  # non-causal graph imputer, re-implemented from the paper
-ALL_MODELS = (GENERATORS + FORECASTERS + PREDICTION_BASELINES + IMPUTATION_BASELINES + GENERATION_BASELINES
-              + IMPUTATION_MODELS)
+ALL_MODELS = GENERATORS + FORECASTERS + PREDICTION_BASELINES + IMPUTATION_BASELINES + GENERATION_BASELINES
 TASKS = ("prediction", "imputation", "generation")
 N_SAMPLES_CRPS = 100
 N_GENERATED = 500
@@ -189,16 +186,6 @@ def run_baseline(args, series, spec) -> dict:
             fake = external.par_generate(series, spec.gen_length, N_GENERATED, args.seed, args.device)
         out["fit"] = {"seconds": time.time() - t0}
         out["generation"] = generation_scores(series, fake, spec, args)
-    if args.model in IMPUTATION_MODELS and "imputation" in args.tasks:
-        out["imputation"], out["fit"] = {}, {}
-        for label, problem in imputation_problems(series, args.seed).items():
-            cfg = grin.GrinConfig(seed=args.seed, device=args.device, epochs=min(args.epochs, 300))
-            t0 = time.time()
-            model = grin.fit(problem, static_adjacency(problem).numpy(), cfg)
-            lo, hi = problem.split_range("test")
-            out["imputation"][label] = imputation_scores(problem, grin.impute_range(model, problem, cfg, lo, hi))
-            out["fit"][label] = {"best_val": model.best_val, "epochs_run": model.epochs_run,
-                                 "seconds": time.time() - t0}
     if args.model in IMPUTATION_BASELINES and "imputation" in args.tasks:
         out["imputation"] = {}
         for label, problem in imputation_problems(series, args.seed).items():
