@@ -40,20 +40,34 @@ Zheng et al. 2015 with the standard `eval_mask`). Synthetic follows
 | No sanity baselines | persistence, linear extrapolation, VAR(AIC), LOCF, interpolation | `baselines.py` | `test_var_recovers_var1` |
 | Exchange exo constant (sin 0, cos 1) | no calendar covariate for Exchange (file has no real dates); AQI: hour + weekday | `data.py` | — |
 
-## New modelling choice: level-relative parameterisation
+## Level parameterisation chosen by a unit-root test
 
-Exchange rates are non-stationary: the validation/test range lies outside the training
-range (up to 1.77 on the train-min-max scale). With absolute inputs and means the
-validation NLL diverges from the first epoch and early stopping keeps an untrained model
-(MAE 0.23 vs 0.006 for persistence). The core therefore feeds inputs relative to the
-window's first step and anchors the mixture means at the last value,
-μ_m = x_t + Δμ_m (persistence is the Δμ = 0 model). `--absolute` restores the original
-parameterisation as an ablation.
+Exchange rates are integrated: the validation/test range lies outside the training range
+(up to 1.77 on the train-min-max scale). In levels, the validation NLL diverges and early
+stopping keeps an untrained model (prediction MAE 0.248 vs 0.0068). The fix is to feed
+inputs relative to the window's first step and anchor the mixture means on the last
+value, μ_m = x_t + Δμ_m (Δμ = 0 is persistence).
+
+On stationary data the same parameterisation breaks free-running generation: the level
+is invisible to the model, so samples drift like a random walk (AQI-36 MDN: 45 % of
+generated values outside the training range vs 1 % in levels, with identical one-step
+calibration). Feeding the absolute level as an extra input (`--level-input`) made it
+worse. `--param auto` (default) therefore applies Box-Jenkins logic on the training
+range only: level-relative iff most variables have a unit root (ADF, p > 0.05).
+Exchange → relative (7/8 currencies), AQI-36 and Synthetic → levels. The decision and
+the ADF p-values are stored in every result JSON. `--param relative|absolute` forces one.
+
+History: AQI-36 and Synthetic were first run level-relative; `scripts/supersede_relative.sh`
+moved those runs to `results/_superseded_relative/` (ASGTM kept as the `asgtm-relative`
+ablation) and `scripts/rerun_auto_param.sh` reran them. In MLflow the old runs carry the
+tag `superseded`.
 
 ## Ablations wired into the grid
 
 `--temporal-graph chain|complete|hvg|none` (A3), `--edge-weight similarity`,
-`--spatial-graph random` (A4), `--absolute` (A5). See `scripts/run_grid.sh`.
+`--spatial-graph random` (A4), `--param relative|absolute` (A5). See `scripts/run_grid.sh`.
+`scripts/thesis_tables.py` writes the thesis tables with Welch significance marks and
+`comparisons.md` (every research-question contrast).
 
 ## Tracking with MLflow
 
