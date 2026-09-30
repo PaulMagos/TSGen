@@ -93,8 +93,11 @@ def evaluate_loss(model, batch: Batch, device, batch_size: int = 512) -> float:
     return total / max(weight, 1.0)
 
 
-def fit(model: torch.nn.Module, series: Series, cfg: TrainConfig) -> dict:
-    """Adam + early stopping on validation loss; restores the best weights (deep copy)."""
+def fit(model: torch.nn.Module, series: Series, cfg: TrainConfig, on_epoch=None) -> dict:
+    """Adam + early stopping on validation loss; restores the best weights (deep copy).
+
+    `on_epoch(record)` is called after every epoch with {'epoch', 'train', 'val'}.
+    """
     seed_everything(cfg.seed)
     device = torch.device(cfg.device)
     model.to(device)
@@ -118,6 +121,8 @@ def fit(model: torch.nn.Module, series: Series, cfg: TrainConfig) -> dict:
             running += loss.item() * len(b)
         val_loss = evaluate_loss(model, val, device)
         history.append({"epoch": epoch, "train": running / len(train), "val": val_loss})
+        if on_epoch is not None:
+            on_epoch(history[-1])
         if val_loss < best_loss - 1e-6:
             best_loss, best_state, bad = val_loss, copy.deepcopy(model.state_dict()), 0
         else:

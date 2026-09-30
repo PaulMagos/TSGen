@@ -9,3 +9,7 @@ tables>=3.9
 pytest>=8
 # visibility graphs: pip install pyrustygraph>=0.5.1  (or build from github.com/PaulMagos/rustygraph)
 pyrustygraph>=0.5.1
+# optional tracking (tsgen/tracking.py; active only with MLFLOW_TRACKING_URI set)
+mlflow-skinny==3.16.1
+psutil>=5.9
+# GPU machines, for GPU system metrics:  nvidia-ml-py

@@ -1,0 +1,46 @@
+# MLflow tracking server for tsgen runs. No host port is published: ArcBox serves the
+# container at http://mlflow.tsgen-mlflow.arcbox.local:5000, reachable from this Mac only
+# (publishing 127.0.0.1:PORT is broken in ArcBox, and a plain PORT would expose the
+# unauthenticated server to the LAN).
+#   cd infra/mlflow && ./up.sh          # creates .env with a random DB password on first run
+# Remote (GPU) machines reach it through an SSH reverse tunnel, see README.md.
+name: tsgen-mlflow
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_DB: mlflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/mlflow/.env}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mlflow:
+    build: .
+    image: tsgen-mlflow:3.16.1
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/mlflow/.env}
+    command: >
+      sh -c 'exec mlflow server
+      --backend-store-uri "postgresql+psycopg2://mlflow:$${POSTGRES_PASSWORD}@db:5432/mlflow"
+      --artifacts-destination /mlartifacts
+      --serve-artifacts
+      --host 0.0.0.0 --port 5000 --workers 4
+      --allowed-hosts "localhost,localhost:*,127.0.0.1,127.0.0.1:*,mlflow.tsgen-mlflow.arcbox.local,mlflow.tsgen-mlflow.arcbox.local:*"'
+    volumes:
+      - artifacts:/mlartifacts
+
+volumes:
+  db:
+  artifacts:

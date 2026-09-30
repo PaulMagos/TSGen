@@ -55,6 +55,31 @@ parameterisation as an ablation.
 `--temporal-graph chain|complete|hvg|none` (A3), `--edge-weight similarity`,
 `--spatial-graph random` (A4), `--absolute` (A5). See `scripts/run_grid.sh`.
 
+## Tracking with MLflow
+
+```bash
+infra/mlflow/up.sh      # MLflow 3.16.1 + Postgres in Docker (ArcBox); random DB password in infra/mlflow/.env
+export MLFLOW_TRACKING_URI=http://mlflow.tsgen-mlflow.arcbox.local:5000
+bash scripts/run_grid.sh                       # every run is logged live
+.venv/bin/python -m tsgen.tracking backfill    # log results/ JSONs produced without tracking
+```
+
+One experiment per dataset (`tsgen/AirQuality`, …), one run per model × seed, with the
+config as params, `train_loss`/`val_loss` per epoch, every final score
+(`prediction/mae`, `generation/vs_train/acf_distance`, …), CPU/RAM/GPU system metrics
+and the result JSON as artifact. Without `MLFLOW_TRACKING_URI` tracking is a no-op.
+
+The server publishes no host port (ArcBox's `127.0.0.1:PORT` forwarding is broken and a
+plain port would expose an unauthenticated server to the LAN). A remote GPU machine logs
+through an SSH reverse tunnel opened from this Mac:
+
+```bash
+ssh -R 5050:mlflow.tsgen-mlflow.arcbox.local:5000 user@gpu-box
+# on gpu-box:
+export MLFLOW_TRACKING_URI=http://localhost:5050
+DATASETS=airquality DEVICE=cuda bash scripts/run_grid.sh
+```
+
 ## Not yet included (phase 4)
 
 DGAN / PAR / TimeGAN baselines, GRIN on the same AQI split, and the GRIN month-based

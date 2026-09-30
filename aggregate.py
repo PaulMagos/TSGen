@@ -13,6 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
+from tsgen.tracking import flatten_metrics
+
 SECTIONS = ("prediction", "imputation", "generation")
 HEADLINE = {  # columns shown unless --all
     "prediction": ("mae", "mse", "mase", "crps"),
@@ -23,20 +25,8 @@ HEADLINE = {  # columns shown unless --all
 
 
 def flatten(result: dict) -> dict[str, float]:
-    """{'prediction': {'mae': x}} → {'prediction/mae': x}; nested imputation problems included."""
-    flat: dict[str, float] = {}
-
-    def walk(prefix: str, node):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                walk(f"{prefix}/{k}" if prefix else k, v)
-        elif isinstance(node, (int, float)) and not isinstance(node, bool):
-            flat[prefix] = float(node)
-
-    for section in SECTIONS:
-        if section in result:
-            walk(section, result[section])
-    return flat
+    """{'prediction': {'mae': x}} → {'prediction/mae': x}; scores only (no fit/params)."""
+    return {k: v for k, v in flatten_metrics(result, SECTIONS).items() if k != "n_params"}
 
 
 def collect(root: Path) -> dict[str, dict[str, dict[str, list[float]]]]:

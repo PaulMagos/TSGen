@@ -22,6 +22,7 @@ import pandas as pd
 import torch
 
 from tsgen import baselines, data, graphs, inference, metrics, models, train
+from tsgen.tracking import Tracker
 
 GENERATORS = tuple(models.VARIANTS)
 FORECASTERS = ("lstm", "rnn")
@@ -120,13 +121,14 @@ def _matched_forecaster(cell, series, use_mask, budget, relative):
     return models.PointForecaster(cell, series.n_nodes, series.n_exo, best, use_mask, relative)
 
 
-def run_learned(args, series, spec, tcfg) -> dict:
+def run_learned(args, series, spec, tcfg, tracker: Tracker) -> dict:
     out: dict = {}
     model = make_model(args.model, series, spec, args.hidden, not args.absolute)
     out["params"] = models.count_params(model)
     t0 = time.time()
-    fit = train.fit(model, series, tcfg)
-    out["fit"] = {"best_val": fit["best_val"], "epochs_run": fit["epochs_run"], "seconds": time.time() - t0}
+    fit = train.fit(model, series, tcfg, on_epoch=tracker.log_epoch)
+    out["fit"] = {"best_val": fit["best_val"], "epochs_run": fit["epochs_run"], "seconds": time.time() - t0,
+                  "history": fit["history"]}
     if "prediction" in args.tasks:
         f = inference.predict(model, series, tcfg, n_samples=N_SAMPLES_CRPS, seed=args.seed)
         out["prediction"] = point_scores(series, f.targets, f.y_pred, f.samples)
@@ -212,12 +214,17 @@ def main(argv=None) -> Path:
     tcfg = train.TrainConfig(window=spec.window, epochs=args.epochs, seed=args.seed, device=args.device,
                              temporal_graph=args.temporal_graph, edge_weight=args.edge_weight)
     learned = args.model in GENERATORS + FORECASTERS
-    result = run_learned(args, series, spec, tcfg) if learned else run_baseline(args, series, spec)
-    result["config"] = {**{k: v for k, v in vars(args).items() if k != "tasks"}, "tasks": list(args.tasks),
-                        "spec": asdict(spec), "train": asdict(tcfg)}
-    path = Path(args.out) / series.name / f"{args.model}{args.tag}" / f"seed{args.seed}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(result, indent=2, default=float))
+    config = {**{k: v for k, v in vars(args).items() if k != "tasks"}, "tasks": list(args.tasks),
+              "spec": asdict(spec), "train": asdict(tcfg)}
+    name = f"{args.model}{args.tag}"
+    tags = {"dataset": series.name, "model": args.model, "variant": name, "seed": str(args.seed)}
+    with Tracker(series.name, f"{name} seed{args.seed}", config, tags) as tracker:
+        result = run_learned(args, series, spec, tcfg, tracker) if learned else run_baseline(args, series, spec)
+        result["config"] = config
+        path = Path(args.out) / series.name / name / f"seed{args.seed}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(result, indent=2, default=float))
+        tracker.log_result(result, path)
     return path
 
 

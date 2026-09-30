@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Full experiment grid for the thesis re-run (GPU box). Resumable: skips finished JSONs.
 #   SEEDS="0 1 2 3 4" EPOCHS=200 DEVICE=cuda bash scripts/run_grid.sh
-set -euo pipefail
+# With MLFLOW_TRACKING_URI set, every run is also logged to MLflow (tsgen/tracking.py).
+# A failing run is recorded in $OUT/failed.txt and the grid continues.
+set -uo pipefail
 cd "$(dirname "$0")/.."
 PY=${PY:-.venv/bin/python}
 SEEDS=${SEEDS:-"0 1 2 3 4"}
@@ -17,8 +19,11 @@ run() {  # dataset model seed tag [extra args...]
   local f="$OUT/$name/$model$tag/seed$seed.json"
   [[ -f $f ]] && return 0
   echo ">> $ds $model$tag seed $seed"
-  $PY run_experiment.py --dataset "$ds" --model "$model" --seed "$seed" --epochs "$EPOCHS" \
-    --device "$DEVICE" --out "$OUT" --tag "$tag" "$@"
+  if ! $PY run_experiment.py --dataset "$ds" --model "$model" --seed "$seed" --epochs "$EPOCHS" \
+      --device "$DEVICE" --out "$OUT" --tag="$tag" "$@"; then
+    echo "$(date -u +%FT%TZ) $ds $model$tag seed$seed" >> "$OUT/failed.txt"
+    echo "!! FAILED $ds $model$tag seed $seed"
+  fi
 }
 
 for ds in $DATASETS; do
