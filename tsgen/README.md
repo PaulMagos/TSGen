@@ -31,7 +31,7 @@ Zheng et al. 2015 with the standard `eval_mask`). Synthetic follows
 | Edge weight = distance (dissimilar ⇒ bigger message) | `binary` default, `similarity` option | `graphs.temporal_adjacency` | — |
 | Exo columns treated as graph nodes (adjacency off by 2) | spatial block sees sensors only | `models.SpatialDiffusion` | `test_spatial_messages_follow_the_given_adjacency` |
 | Adaptive graph always dense | top-k sparse softmax | `models.AdaptiveAdjacency` | `test_adaptive_adjacency_is_sparse_and_stochastic` |
-| Imputation fed the true values | causal imputation, exact conditioning on same-step observed entries; held-out entries hidden in training too | `inference.impute`, `data.with_eval_mask` | `test_imputation_never_reads_hidden_values` |
+| Imputation fed the true values | p(x_t \| observed past, same-step observed entries): hidden inputs presented as in training (last observation + mask flag), no feedback of imputed values (feedback compounds the anchored means: AQI MAE 0.11 → 0.06); held-out entries hidden in training too | `inference.impute`, `data.with_eval_mask` | `test_imputation_never_reads_hidden_values` |
 | AQI scored on tsl-filled values | scored on the real `eval_mask` observations | `data.load_aqi` | — |
 | Generation resampled the whole window, noise seed, no burn-in | append one step, real train seed, burn-in discarded | `inference.generate` | `test_generation_shapes_and_burn_in` |
 | Early stopping kept references, monitored train loss | deep copy, validation loss | `train.fit` | `test_early_stopping_restores_best_weights` |
