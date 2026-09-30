@@ -26,7 +26,7 @@ PRED = {"mae": "MAE", "mse": "MSE", "mase": "MASE", "crps": "CRPS"}
 GEN = {"wasserstein": "W$_1$", "mmd_rbf": "MMD$^2$", "acf_distance": "ACF", "cross_corr_distance": "XCorr",
        "discriminative_score": "Disc.", "tstr_ratio": "TSTR", "mem_ratio": "Mem.", "vg_divergence": "VG-div"}
 MAIN = ("persistence", "linear", "var", "lstm", "rnn", "mdn", "gtm", "sgtm", "asgtm")
-GENERATORS = ("var", "mdn", "gtm", "sgtm", "asgtm")
+GENERATORS = ("var", "dgan", "par", "mdn", "gtm", "sgtm", "asgtm")
 ABLATIONS = ("gtm", "gtm-chain", "gtm-complete", "gtm-hvg", "gtm-simw", "sgtm", "sgtm-randgraph",
              "asgtm", "asgtm-relative", "asgtm-absolute")
 ABLATION_METRICS = {"prediction/mae": "Pred. MAE",
@@ -34,7 +34,8 @@ ABLATION_METRICS = {"prediction/mae": "Pred. MAE",
                                                                     "cross_corr_distance", "vg_divergence")}}
 CAPACITY = ("mdn", "mdn-h128", "mdn-h256", "gtm", "gtm-h128", "gtm-h256", "asgtm", "asgtm-h128", "asgtm-h256")
 NAMES = {"persistence": "Persistence", "linear": "Linear extrap.", "var": "VAR", "lstm": "LSTM", "rnn": "RNN",
-         "mdn": "MDN", "gtm": "GTM", "sgtm": "SGTM", "asgtm": "ASGTM", "locf": "LOCF", "interp": "Interp.$^*$"}
+         "mdn": "MDN", "gtm": "GTM", "sgtm": "SGTM", "asgtm": "ASGTM", "locf": "LOCF", "interp": "Interp.$^*$",
+         "dgan": "DGAN", "par": "PAR"}
 
 
 def load(root: Path) -> dict:
@@ -164,6 +165,9 @@ def comparison_list(table) -> list[tuple[str, str, str, str, str]]:
         best = best_neural(table, ds)
         c += [(f"best neural ({best}) vs VAR", ds, best, "var", G + m)
               for m in ("wasserstein", "mmd_rbf", "acf_distance", "cross_corr_distance", "vg_divergence")]
+        for ext in ("dgan", "par"):
+            c += [(f"proposed vs {ext.upper()}", ds, a, ext, G + m) for a in ("gtm", "asgtm")
+                  for m in ("wasserstein", "mmd_rbf", "acf_distance", "cross_corr_distance")]
     # level parameterisation: chosen (auto) vs the other one
     for ds, other in (("AirQuality", "asgtm-relative"), ("Synthetic", "asgtm-relative"), ("Exchange", "asgtm-absolute")):
         c += [("A5 parameterisation (auto vs other)", ds, "asgtm", other, k)
