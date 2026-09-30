@@ -265,3 +265,24 @@ def with_eval_mask(series: Series, eval_mask: np.ndarray) -> Series:
     raw = series.denormalize(series.truth.astype(np.float64))
     return build_series(series.name, raw, series.exo, series.columns,
                         eval_mask=eval_mask, adjacency=series.adjacency)
+
+
+def unit_root_pvalues(series: Series, max_points: int = 5000) -> np.ndarray:
+    """Augmented Dickey-Fuller p-value per variable on the training range (lag by AIC)."""
+    from statsmodels.tsa.stattools import adfuller
+    tr = series.split_range("train")[1]
+    x = series.values[:tr]
+    step = max(1, len(x) // max_points)
+    return np.array([adfuller(x[::step, i], autolag="AIC")[1] if x[:, i].max() > x[:, i].min() else 0.0
+                     for i in range(series.n_nodes)])
+
+
+def prefers_relative(series: Series, alpha: float = 0.05) -> tuple[bool, np.ndarray]:
+    """Level-relative parameterisation iff most variables have a unit root (ADF p > alpha).
+
+    Box-Jenkins logic decided on the training range only: difference (here: anchor on
+    the last value) integrated series, model stationary series in levels so that
+    free-running generation can mean-revert.
+    """
+    p = unit_root_pvalues(series)
+    return bool(np.mean(p > alpha) > 0.5), p

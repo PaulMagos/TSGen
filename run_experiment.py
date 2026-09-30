@@ -125,7 +125,7 @@ def _matched_forecaster(cell, series, use_mask, budget, relative):
 
 def run_learned(args, series, spec, tcfg, tracker: Tracker) -> dict:
     out: dict = {}
-    model = make_model(args.model, series, spec, args.hidden, not args.absolute, args.level_input)
+    model = make_model(args.model, series, spec, args.hidden, args.relative, args.level_input)
     out["params"] = models.count_params(model)
     t0 = time.time()
     fit = train.fit(model, series, tcfg, on_epoch=tracker.log_epoch)
@@ -142,7 +142,7 @@ def run_learned(args, series, spec, tcfg, tracker: Tracker) -> dict:
         for label, problem in imputation_problems(series, args.seed).items():
             m = model
             if problem is not series:  # hidden entries must not be seen in training either
-                m = make_model(args.model, problem, spec, args.hidden, not args.absolute, args.level_input)
+                m = make_model(args.model, problem, spec, args.hidden, args.relative, args.level_input)
                 train.fit(m, problem, tcfg)
             out["imputation"][label] = imputation_scores(problem, inference.impute(m, problem, tcfg))
     return out
@@ -195,8 +195,10 @@ def main(argv=None) -> Path:
     ap.add_argument("--hidden", type=int, default=64, help="reference ASGTM width for the parameter budget")
     ap.add_argument("--temporal-graph", default="vg", choices=["vg", "hvg", "chain", "complete", "none"])
     ap.add_argument("--edge-weight", default="binary", choices=["binary", "similarity"])
-    ap.add_argument("--absolute", action="store_true",
-                    help="ablation: absolute inputs/means (the original model) instead of level-relative")
+    ap.add_argument("--param", default="auto", choices=["auto", "relative", "absolute"],
+                    help="level parameterisation; auto = relative iff most variables have a unit root "
+                         "(ADF on the training range)")
+    ap.add_argument("--absolute", action="store_true", help="alias for --param absolute")
     ap.add_argument("--level-input", action="store_true",
                     help="feed absolute levels next to the relative inputs (means stay anchored)")
     ap.add_argument("--spatial-graph", default="given", choices=["given", "random"],
@@ -215,6 +217,10 @@ def main(argv=None) -> Path:
     SPATIAL_GRAPH.update(mode=args.spatial_graph, seed=args.seed)
     series = data.load(args.dataset)
     spec = SPECS[series.name]
+    if args.absolute:
+        args.param = "absolute"
+    auto_relative, adf_p = data.prefers_relative(series)
+    args.relative = auto_relative if args.param == "auto" else args.param == "relative"
     tcfg = train.TrainConfig(window=spec.window, epochs=args.epochs, seed=args.seed, device=args.device,
                              temporal_graph=args.temporal_graph, edge_weight=args.edge_weight)
     learned = args.model in GENERATORS + FORECASTERS
@@ -225,6 +231,8 @@ def main(argv=None) -> Path:
     with Tracker(series.name, f"{name} seed{args.seed}", config, tags) as tracker:
         result = run_learned(args, series, spec, tcfg, tracker) if learned else run_baseline(args, series, spec)
         result["config"] = config
+        result["parameterisation"] = {"relative": args.relative, "mode": args.param,
+                                      "adf_pvalues": adf_p.tolist()}
         path = Path(args.out) / series.name / name / f"seed{args.seed}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, indent=2, default=float))
