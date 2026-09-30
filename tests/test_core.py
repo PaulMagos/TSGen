@@ -219,3 +219,18 @@ def test_generation_shapes_and_burn_in():
     train.fit(model, s, cfg)
     g = inference.generate(model, s, cfg, n_samples=6, length=25, burn_in=7)
     assert g.shape == (6, 25, 4) and np.isfinite(g).all()
+
+
+def test_level_input_stays_causal():
+    torch.manual_seed(0)
+    s = toy_series()
+    model = models.build(models.ModelConfig(variant="asgtm", hidden=16, level_input=True), s.n_nodes, s.n_exo).eval()
+    b = train.make_batch(s, np.array([10, 50]), 20, "vg")
+    t = 9
+    x2 = b.x.clone()
+    x2[:, t + 1:] += 2.0
+    p2 = torch.from_numpy(graphs.temporal_adjacency(x2.numpy(), "vg"))
+    with torch.no_grad():
+        out1, out2 = model(b.x, b.exo, b.obs, b.p_time), model(x2, b.exo, b.obs, p2)
+    for a, c in zip(out1, out2):
+        assert torch.allclose(a[:, : t + 1], c[:, : t + 1], atol=1e-6)

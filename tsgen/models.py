@@ -12,7 +12,9 @@ One conditional model p(x_{t+1} | x_{≤t}, y_{≤t}) with switchable blocks:
 Relative inputs and last-value-anchored means (`relative=True`) make the model
 invariant to the level of the series: needed for non-stationary data such as
 exchange rates, whose validation/test range lies outside the training range.
-With Δμ = 0 the mixture mean is the persistence forecast. Every block only reads steps ≤ t, so teacher-forced training has no future leakage
+With Δμ = 0 the mixture mean is the persistence forecast. Relative inputs alone hide
+the absolute level, so a stationary series cannot mean-revert in free-running
+generation; `level_input=True` also feeds x_t itself. Every block only reads steps ≤ t, so teacher-forced training has no future leakage
 and matches free-running generation.
 """
 
@@ -48,6 +50,7 @@ class ModelConfig:
     topk: int = 5
     use_mask: bool = False
     relative: bool = True
+    level_input: bool = False  # also feed absolute levels, so the model can mean-revert
 
 
 class MixtureHead(nn.Module):
@@ -166,13 +169,14 @@ class GraphMixtureGenerator(nn.Module):
             raise ValueError("sgtm needs a static adjacency")
         self.cfg, self.n, self.e = cfg, n, e
         self.needs_temporal_graph = temporal
-        fin = n + e + (n if cfg.use_mask else 0)
+        fin = n * (2 if cfg.level_input else 1) + e + (n if cfg.use_mask else 0)
         feats = fin
         self.temporal = TemporalDiffusion(fin, cfg.temporal_hidden, cfg.hops) if temporal else None
         feats += cfg.temporal_hidden if temporal else 0
         self.spatial, self.adaptive = None, None
         if spatial:
-            self.spatial = SpatialDiffusion(2 if cfg.use_mask else 1, cfg.spatial_hidden, cfg.hops)
+            node_in = 1 + int(cfg.use_mask) + int(cfg.level_input)
+            self.spatial = SpatialDiffusion(node_in, cfg.spatial_hidden, cfg.hops)
             feats += n * cfg.spatial_hidden
             if spatial == "adaptive":
                 self.adaptive = AdaptiveAdjacency(n, cfg.embedding, cfg.topk)
@@ -192,7 +196,7 @@ class GraphMixtureGenerator(nn.Module):
     def encode(self, x, exo, obs=None, p_time=None) -> torch.Tensor:
         """x (B, w, N), exo (B, w, E), obs (B, w, N) bool, p_time (B, w, w) → h (B, w, H)."""
         xr = x - x[:, :1] if self.cfg.relative else x
-        parts = [xr, exo]
+        parts = [xr, x, exo] if self.cfg.level_input else [xr, exo]
         if self.cfg.use_mask:
             parts.append(obs.to(x.dtype))
         f = torch.cat(parts, -1)
@@ -203,6 +207,8 @@ class GraphMixtureGenerator(nn.Module):
             feats.append(self.temporal(f, p_time))
         if self.spatial is not None:
             node = xr.unsqueeze(-1)
+            if self.cfg.level_input:
+                node = torch.cat([node, x.unsqueeze(-1)], -1)
             if self.cfg.use_mask:
                 node = torch.cat([node, obs.to(x.dtype).unsqueeze(-1)], -1)
             s = self.spatial(node, self.adjacency())

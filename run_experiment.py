@@ -97,12 +97,14 @@ def static_adjacency(series: data.Series) -> torch.Tensor:
     return torch.from_numpy(adj)
 
 
-def make_model(name: str, series: data.Series, spec: DatasetSpec, hidden: int, relative: bool = True):
+def make_model(name: str, series: data.Series, spec: DatasetSpec, hidden: int, relative: bool = True,
+               level_input: bool = False):
     use_mask = not series.mask.all()
     if name in FORECASTERS:
         return _matched_forecaster(name, series, use_mask, _budget(series, spec, hidden), relative)
     cfg = models.ModelConfig(variant=name, hidden=hidden, mixtures=spec.mixtures,
-                             embedding=spec.embedding, use_mask=use_mask, relative=relative)
+                             embedding=spec.embedding, use_mask=use_mask, relative=relative,
+                             level_input=level_input)
     return models.build(cfg, series.n_nodes, series.n_exo, static_adjacency(series),
                         param_budget=_budget(series, spec, hidden))
 
@@ -123,7 +125,7 @@ def _matched_forecaster(cell, series, use_mask, budget, relative):
 
 def run_learned(args, series, spec, tcfg, tracker: Tracker) -> dict:
     out: dict = {}
-    model = make_model(args.model, series, spec, args.hidden, not args.absolute)
+    model = make_model(args.model, series, spec, args.hidden, not args.absolute, args.level_input)
     out["params"] = models.count_params(model)
     t0 = time.time()
     fit = train.fit(model, series, tcfg, on_epoch=tracker.log_epoch)
@@ -140,7 +142,7 @@ def run_learned(args, series, spec, tcfg, tracker: Tracker) -> dict:
         for label, problem in imputation_problems(series, args.seed).items():
             m = model
             if problem is not series:  # hidden entries must not be seen in training either
-                m = make_model(args.model, problem, spec, args.hidden, not args.absolute)
+                m = make_model(args.model, problem, spec, args.hidden, not args.absolute, args.level_input)
                 train.fit(m, problem, tcfg)
             out["imputation"][label] = imputation_scores(problem, inference.impute(m, problem, tcfg))
     return out
@@ -195,6 +197,8 @@ def main(argv=None) -> Path:
     ap.add_argument("--edge-weight", default="binary", choices=["binary", "similarity"])
     ap.add_argument("--absolute", action="store_true",
                     help="ablation: absolute inputs/means (the original model) instead of level-relative")
+    ap.add_argument("--level-input", action="store_true",
+                    help="feed absolute levels next to the relative inputs (means stay anchored)")
     ap.add_argument("--spatial-graph", default="given", choices=["given", "random"],
                     help="ablation: replace the static graph by a random one with the same weights")
     ap.add_argument("--tasks", default=",".join(TASKS))
