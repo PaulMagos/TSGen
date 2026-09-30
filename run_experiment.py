@@ -161,7 +161,7 @@ def generation_scores(series, fake, spec, args) -> dict:
             "vs_test": metrics.generation_report(real_test, fake, seed=args.seed, device=args.device)}
 
 
-def run_baseline(args, series, spec) -> dict:
+def run_baseline(args, series, spec, tracker: Tracker) -> dict:
     out: dict = {}
     w = spec.window
     if args.model in PREDICTION_BASELINES and "prediction" in args.tasks:
@@ -182,9 +182,12 @@ def run_baseline(args, series, spec) -> dict:
         if args.model == "dgan":
             fake = external.dgan_generate(series, spec.gen_length, spec.dgan_sample_len, N_GENERATED,
                                           args.seed, args.device)
+            out["fit"] = {"seconds": time.time() - t0}
         else:
-            fake = external.par_generate(series, spec.gen_length, N_GENERATED, args.seed, args.device)
-        out["fit"] = {"seconds": time.time() - t0}
+            fake, history = external.par_generate(series, spec.gen_length, N_GENERATED, args.seed, args.device)
+            for record in history:
+                tracker.log_epoch(record)
+            out["fit"] = {"seconds": time.time() - t0, "epochs_run": len(history), "history": history}
         out["generation"] = generation_scores(series, fake, spec, args)
     if args.model in IMPUTATION_BASELINES and "imputation" in args.tasks:
         out["imputation"] = {}
@@ -241,7 +244,7 @@ def main(argv=None) -> Path:
     name = f"{args.model}{args.tag}"
     tags = {"dataset": series.name, "model": args.model, "variant": name, "seed": str(args.seed)}
     with Tracker(series.name, f"{name} seed{args.seed}", config, tags) as tracker:
-        result = run_learned(args, series, spec, tcfg, tracker) if learned else run_baseline(args, series, spec)
+        result = run_learned(args, series, spec, tcfg, tracker) if learned else run_baseline(args, series, spec, tracker)
         result["config"] = config
         result["parameterisation"] = {"relative": args.relative, "mode": args.param,
                                       "adf_pvalues": adf_p.tolist()}

@@ -120,9 +120,10 @@ class Tracker:
         return False
 
     def log_epoch(self, record: dict) -> None:
+        """record = {'epoch', 'train', optional 'val'}."""
         if self.enabled:
-            self._safe("log_epoch", self.mlflow.log_metrics,
-                       {"train_loss": record["train"], "val_loss": record["val"]}, step=record["epoch"])
+            metrics = {f"{k}_loss": record[k] for k in ("train", "val") if k in record}
+            self._safe("log_epoch", self.mlflow.log_metrics, metrics, step=record["epoch"])
 
     def log_result(self, result: dict, path: Path | None = None) -> None:
         if not self.enabled:

@@ -6,7 +6,8 @@ training split only, at most MAX_SEQUENCES chosen with the run seed) and return
 
 DGAN comes from gretel-synthetics' pure-PyTorch `timeseries_dgan`, vendored by
 scripts/install_baselines.sh (the package's dependencies would downgrade the core
-stack); PAR is DeepEcho's PARModel (Zhang et al., 2022).
+stack); PAR is DeepEcho's PARModel (Zhang et al., 2022) run through tsgen.fast_par, which
+vectorises its loops without changing the model, the loss or the sampling rules.
 """
 
 from __future__ import annotations
@@ -65,10 +66,15 @@ def dgan_generate(series: Series, length: int, sample_len: int, n: int, seed: in
     return np.asarray(fake, dtype=np.float32)
 
 
-def par_generate(series: Series, length: int, n: int, seed: int, device: str, epochs: int = PAR_EPOCHS) -> np.ndarray:
-    """PAR (DeepEcho): autoregressive RNN over per-column distribution parameters."""
+def par_generate(series: Series, length: int, n: int, seed: int, device: str,
+                 epochs: int = PAR_EPOCHS) -> tuple[np.ndarray, list[dict]]:
+    """PAR (DeepEcho): autoregressive RNN over per-column distribution parameters.
+
+    Returns the samples and the per-epoch training loss [{'epoch', 'train'}].
+    """
     import pandas as pd
-    from deepecho import PARModel
+
+    from .fast_par import FastPARModel
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -77,8 +83,9 @@ def par_generate(series: Series, length: int, n: int, seed: int, device: str, ep
     cols = [f"c{i}" for i in range(d)]
     frame = pd.DataFrame(seqs.reshape(s * l, d), columns=cols)
     frame.insert(0, "id", np.repeat(np.arange(s), l))
-    model = PARModel(epochs=epochs, cuda=device.startswith("cuda"), verbose=False)
+    model = FastPARModel(epochs=epochs, cuda=device.startswith("cuda"), verbose=False)
     model.fit(frame, entity_columns=["id"], data_types={c: "continuous" for c in cols})
-    out = model.sample(num_entities=n, sequence_length=length)
-    fake = out[cols].to_numpy(np.float32)
-    return fake.reshape(n, length, d)
+    gen = torch.Generator(device=model.device).manual_seed(seed)
+    fake = model.sample_batch(n, length, generator=gen)
+    history = [{"epoch": int(e), "train": float(v)} for e, v in zip(model.loss_values["Epoch"], model.loss_values["Loss"])]
+    return fake, history

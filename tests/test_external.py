@@ -29,5 +29,6 @@ def test_dgan_shapes():
 
 def test_par_shapes():
     pytest.importorskip("deepecho")
-    fake = external.par_generate(small_series(), 20, n=3, seed=0, device="cpu", epochs=1)
+    fake, history = external.par_generate(small_series(), 20, n=3, seed=0, device="cpu", epochs=1)
+    assert len(history) == 1
     assert fake.shape == (3, 20, 6) and np.isfinite(fake).all()
