@@ -1,9 +1,7 @@
-# MLflow tracking server for tsgen runs. No host port is published: ArcBox serves the
-# container at http://mlflow.tsgen-mlflow.arcbox.local:5000, reachable from this Mac only
-# (publishing 127.0.0.1:PORT is broken in ArcBox, and a plain PORT would expose the
-# unauthenticated server to the LAN).
-#   cd infra/mlflow && ./up.sh          # creates .env with a random DB password on first run
-# Remote (GPU) machines reach it through an SSH reverse tunnel, see README.md.
+# MLflow tracking server for tsgen runs, with basic auth (user `admin`).
+#   ./up.sh     # first run creates .env (DB + admin passwords) and client env files
+# Reachable on this Mac and the LAN at http://<mac-ip>:5050 (login required) and at
+# http://mlflow.tsgen-mlflow.arcbox.local:5000 from this Mac.
 name: tsgen-mlflow
 
 services:
@@ -13,7 +11,7 @@ services:
     environment:
       POSTGRES_USER: mlflow
       POSTGRES_DB: mlflow
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/mlflow/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./up.sh}
     volumes:
       - db:/var/lib/postgresql/data
     healthcheck:
@@ -24,24 +22,24 @@ services:
 
   mlflow:
     build: .
-    image: tsgen-mlflow:3.16.1
+    image: tsgen-mlflow:3.16.1-auth
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/mlflow/.env}
-    command: >
-      sh -c 'exec mlflow server
-      --backend-store-uri "postgresql+psycopg2://mlflow:$${POSTGRES_PASSWORD}@db:5432/mlflow"
-      --artifacts-destination /mlartifacts
-      --serve-artifacts
-      --host 0.0.0.0 --port 5000 --workers 4
-      --allowed-hosts "localhost,localhost:*,127.0.0.1,127.0.0.1:*,mlflow.tsgen-mlflow.arcbox.local,mlflow.tsgen-mlflow.arcbox.local:*"
-      --cors-allowed-origins "http://mlflow.tsgen-mlflow.arcbox.local:5000,http://localhost:5050,http://127.0.0.1:5050"'
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./up.sh}
+      MLFLOW_ADMIN_PASSWORD: ${MLFLOW_ADMIN_PASSWORD:?run ./up.sh}
+      MLFLOW_FLASK_SERVER_SECRET_KEY: ${MLFLOW_FLASK_SERVER_SECRET_KEY:?run ./up.sh}
+      MLFLOW_ALLOWED_HOSTS: ${MLFLOW_ALLOWED_HOSTS:?run ./up.sh}
+      MLFLOW_CORS_ORIGINS: ${MLFLOW_CORS_ORIGINS:?run ./up.sh}
+    ports:
+      - "${MLFLOW_PORT:-5050}:5000"
     volumes:
       - artifacts:/mlartifacts
+      - auth:/mlauth
 
 volumes:
   db:
   artifacts:
+  auth:
