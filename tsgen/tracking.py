@@ -1,7 +1,9 @@
 """Optional MLflow tracking for experiment runs.
 
 Active only when MLFLOW_TRACKING_URI is set and mlflow is importable; otherwise every
-call is a no-op, so runs never depend on the server. Logged per run: flattened config
+call is a no-op. Tracking errors (server down, tunnel closed) disable tracking for the
+rest of the run with a warning, so an experiment never fails because of MLflow;
+`backfill` can log its result JSON later. Logged per run: flattened config
 (params), train/val loss per epoch, final scores, system metrics (CPU, RAM, GPU when
 available), and the result JSON as an artifact.
 
@@ -56,6 +58,8 @@ def flatten_params(config: dict, prefix: str = "") -> dict[str, str]:
 
 
 def _git_commit() -> str | None:
+    if commit := os.environ.get("TSGEN_GIT_COMMIT"):  # machines without git (code shipped as archive)
+        return commit
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True,
                                        stderr=subprocess.DEVNULL, cwd=Path(__file__).parent).strip()
@@ -87,31 +91,46 @@ class Tracker:
     def enabled(self) -> bool:
         return self.mlflow is not None
 
+    def _safe(self, what: str, fn, *args, **kwargs) -> None:
+        """Run an MLflow call; on any error warn once and stop tracking this run."""
+        if not self.enabled:
+            return
+        try:
+            fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - tracking must never break an experiment
+            log.warning("MLflow %s failed (%s); tracking disabled for run '%s'", what, exc, self.run_name)
+            try:
+                self.mlflow.end_run(status="FAILED")
+            except Exception:  # noqa: BLE001
+                pass
+            self.mlflow = None
+
     def __enter__(self) -> "Tracker":
-        if self.enabled:
+        def start():
             self.mlflow.set_experiment(f"{EXPERIMENT_PREFIX}/{self.dataset}")
             system = os.environ.get("TSGEN_SYSTEM_METRICS", "1") != "0"
             self.mlflow.start_run(run_name=self.run_name, tags=self.tags, log_system_metrics=system)
             self.mlflow.log_params(flatten_params(self.config))
+        self._safe("start_run", start)
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         if self.enabled:
-            self.mlflow.end_run(status="FAILED" if exc_type else "FINISHED")
+            self._safe("end_run", self.mlflow.end_run, status="FAILED" if exc_type else "FINISHED")
         return False
 
     def log_epoch(self, record: dict) -> None:
         if self.enabled:
-            self.mlflow.log_metrics({"train_loss": record["train"], "val_loss": record["val"]},
-                                    step=record["epoch"])
+            self._safe("log_epoch", self.mlflow.log_metrics,
+                       {"train_loss": record["train"], "val_loss": record["val"]}, step=record["epoch"])
 
     def log_result(self, result: dict, path: Path | None = None) -> None:
         if not self.enabled:
             return
-        self.mlflow.log_metrics(flatten_metrics(result))
-        if path is not None:
-            self.mlflow.log_artifact(str(path))
-            self.mlflow.set_tag("result_path", _result_key(path))
+        self._safe("log_metrics", self.mlflow.log_metrics, flatten_metrics(result))
+        if path is not None and self.enabled:
+            self._safe("log_artifact", self.mlflow.log_artifact, str(path))
+            self._safe("set_tag", self.mlflow.set_tag, "result_path", _result_key(path))
 
 
 def _result_key(path: Path) -> str:

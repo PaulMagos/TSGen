@@ -80,6 +80,12 @@ export MLFLOW_TRACKING_URI=http://localhost:5050
 DATASETS=airquality DEVICE=cuda bash scripts/run_grid.sh
 ```
 
+## Capacity sweep
+
+`scripts/run_capacity.sh` reruns MDN / GTM / ASGTM with budgets set by `--hidden 128` and
+`256` (tags `-h128`, `-h256`; the main grid is hidden 64). For AQI-36 the budgets are
+≈0.25M / 0.53M / 1.19M parameters; the legacy ASGTM had ≈0.72M.
+
 ## Not yet included (phase 4)
 
 DGAN / PAR / TimeGAN baselines, GRIN on the same AQI split, and the GRIN month-based
