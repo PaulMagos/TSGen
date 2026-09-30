@@ -181,7 +181,7 @@ def test_imputation_never_reads_hidden_values():
     raw_alt = np.where(hidden, raw + 50.0, raw)
     s2 = data.with_eval_mask(dataclasses.replace(s, truth=((raw_alt - s.scale_min) / s.scale_range).astype(np.float32)), hidden)
     cfg = train.TrainConfig(window=10, epochs=1)
-    model = models.build(models.ModelConfig(variant="gtm", hidden=8, use_mask=True), 4, 2)
+    model = models.build(models.ModelConfig(variant="mr", hidden=8, use_mask=True), 4, 2)
     train.fit(model, s1, cfg)
     f1, f2 = inference.impute(model, s1, cfg), inference.impute(model, s2, cfg)
     lo, hi = s1.split_range("test")
@@ -215,7 +215,7 @@ def test_var_recovers_var1():
 def test_generation_shapes_and_burn_in():
     s = toy_series(t=400)
     cfg = train.TrainConfig(window=10, epochs=1)
-    model = models.build(models.ModelConfig(variant="asgtm", hidden=8, topk=2), 4, 2)
+    model = models.build(models.ModelConfig(variant="asmr", hidden=8, topk=2), 4, 2)
     train.fit(model, s, cfg)
     g = inference.generate(model, s, cfg, n_samples=6, length=25, burn_in=7)
     assert g.shape == (6, 25, 4) and np.isfinite(g).all()
@@ -224,7 +224,7 @@ def test_generation_shapes_and_burn_in():
 def test_level_input_stays_causal():
     torch.manual_seed(0)
     s = toy_series()
-    model = models.build(models.ModelConfig(variant="asgtm", hidden=16, level_input=True), s.n_nodes, s.n_exo).eval()
+    model = models.build(models.ModelConfig(variant="asmr", hidden=16, level_input=True), s.n_nodes, s.n_exo).eval()
     b = train.make_batch(s, np.array([10, 50]), 20, "vg")
     t = 9
     x2 = b.x.clone()

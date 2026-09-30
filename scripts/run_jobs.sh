@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Generic resumable sweep: DATASETS × MODELS × SEEDS with one TAG and EXTRA args.
-#   TAG=-level EXTRA="--level-input" MODELS="mdn asgtm" JOBS=4 DEVICE=cuda bash scripts/run_jobs.sh
+#   TAG=-level EXTRA="--level-input" MODELS="mdn asmr" JOBS=4 DEVICE=cuda bash scripts/run_jobs.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export PY=${PY:-.venv/bin/python} EPOCHS=${EPOCHS:-200} DEVICE=${DEVICE:-cuda} OUT=${OUT:-results}
 export TAG=${TAG?set TAG (may be empty), e.g. -level} EXTRA=${EXTRA:-} TASKS=${TASKS:-prediction,generation}
 DATASETS=${DATASETS:-"synthetic exchange airquality"}
-MODELS=${MODELS:-"mdn gtm sgtm asgtm"}
+MODELS=${MODELS:-"mdn mr smr asmr"}
 SEEDS=${SEEDS:-"0 1 2 3 4"}
 JOBS=${JOBS:-4}
 

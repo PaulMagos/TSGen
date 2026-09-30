@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Capacity sweep: does model size matter? --hidden sets the reference ASGTM width that
-# fixes the parameter budget of every model (main grid = 64; legacy AQI ASGTM ≈ 0.72M
+# Capacity sweep: does model size matter? --hidden sets the reference ASMR width that
+# fixes the parameter budget of every model (main grid = 64; legacy AQI ASMR ≈ 0.72M
 # params ≈ hidden 128-150 here). Resumable; JOBS runs share one GPU.
 #   JOBS=3 DEVICE=cuda SEEDS="0 1 2 3 4" bash scripts/run_capacity.sh
 set -uo pipefail
@@ -9,7 +9,7 @@ export PY=${PY:-.venv/bin/python} EPOCHS=${EPOCHS:-200} DEVICE=${DEVICE:-cuda} O
 SEEDS=${SEEDS:-"0 1 2 3 4"}
 DATASETS=${DATASETS:-"airquality exchange"}
 HIDDEN=${HIDDEN:-"128 256"}
-MODELS=${MODELS:-"mdn gtm asgtm"}
+MODELS=${MODELS:-"mdn mr asmr"}
 JOBS=${JOBS:-3}
 
 run_one() {  # dataset model hidden seed

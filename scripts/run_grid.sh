@@ -31,16 +31,16 @@ for ds in $DATASETS; do
     # baselines (deterministic ones need one seed only, but are cheap)
     for m in persistence linear var locf interp; do run "$ds" "$m" "$seed" ""; done
     # main ladder, parameter-matched
-    for m in mdn gtm sgtm asgtm lstm rnn; do run "$ds" "$m" "$seed" ""; done
+    for m in mdn mr smr asmr lstm rnn; do run "$ds" "$m" "$seed" ""; done
     # ablations: temporal graph type (A3), random spatial graph (A4)
     for g in chain complete hvg; do
-      run "$ds" gtm "$seed" "-$g" --temporal-graph "$g" --tasks prediction,generation
+      run "$ds" mr "$seed" "-$g" --temporal-graph "$g" --tasks prediction,generation
     done
-    run "$ds" gtm "$seed" "-simw" --edge-weight similarity --tasks prediction,generation
-    run "$ds" sgtm "$seed" "-randgraph" --spatial-graph random --tasks prediction,generation
+    run "$ds" mr "$seed" "-simw" --edge-weight similarity --tasks prediction,generation
+    run "$ds" smr "$seed" "-randgraph" --spatial-graph random --tasks prediction,generation
     # level parameterisation (A5): the one --param auto did not pick is the ablation
-    run "$ds" asgtm "$seed" "-relative" --param relative --tasks prediction,generation
-    run "$ds" asgtm "$seed" "-absolute" --param absolute --tasks prediction,generation
+    run "$ds" asmr "$seed" "-relative" --param relative --tasks prediction,generation
+    run "$ds" asmr "$seed" "-absolute" --param absolute --tasks prediction,generation
   done
 done
 $PY aggregate.py --results "$OUT" --latex "$OUT/tables.tex" > "$OUT/tables.md"

@@ -1,4 +1,7 @@
-"""Graph mixture-density generators (MDN, GTM, SGTM, ASGTM) and point baselines.
+"""Graph mixture-density generators (MDN, MR, SMR, ASMR) and point baselines.
+
+MR = Multivariate Regressor (temporal visibility-graph block), SMR = Spatial MR (+ static
+spatial graph), ASMR = Adaptive Spatial MR (+ learned spatial graph); formerly GTM, SGTM, ASGTM.
 
 One conditional model p(x_{t+1} | x_{≤t}, y_{≤t}) with switchable blocks:
 
@@ -30,17 +33,22 @@ from torch.nn import functional as F
 VARIANTS = {
     #          temporal  spatial
     "mdn":   (False, None),
-    "gtm":   (True, None),
-    "sgtm":  (True, "static"),
-    "asgtm": (True, "adaptive"),
+    "mr":    (True, None),
+    "smr":   (True, "static"),
+    "asmr":  (True, "adaptive"),
 }
+ALIASES = {"gtm": "mr", "sgtm": "smr", "asgtm": "asmr"}  # names used before 2026-10-01
+
+
+def canonical(name: str) -> str:
+    return ALIASES.get(name, name)
 LOG_2PI = math.log(2 * math.pi)
 MIN_SIGMA = 1e-3
 
 
 @dataclass(frozen=True)
 class ModelConfig:
-    variant: str = "asgtm"
+    variant: str = "asmr"
     hidden: int = 64
     mixtures: int = 8
     temporal_hidden: int = 16
@@ -162,11 +170,12 @@ class AdaptiveAdjacency(nn.Module):
 class GraphMixtureGenerator(nn.Module):
     def __init__(self, cfg: ModelConfig, n: int, e: int, static_adj: torch.Tensor | None = None):
         super().__init__()
+        cfg = ModelConfig(**{**cfg.__dict__, "variant": canonical(cfg.variant)})
         if cfg.variant not in VARIANTS:
             raise ValueError(f"unknown variant '{cfg.variant}' {tuple(VARIANTS)}")
         temporal, spatial = VARIANTS[cfg.variant]
         if spatial == "static" and static_adj is None:
-            raise ValueError("sgtm needs a static adjacency")
+            raise ValueError("smr needs a static adjacency")
         self.cfg, self.n, self.e = cfg, n, e
         self.needs_temporal_graph = temporal
         fin = n * (2 if cfg.level_input else 1) + e + (n if cfg.use_mask else 0)

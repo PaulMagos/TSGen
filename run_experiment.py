@@ -3,7 +3,8 @@
     python run_experiment.py --dataset airquality --model asgtm --seed 0
     python run_experiment.py --dataset exchange --model var --seed 0 --tasks prediction,generation
 
-Models: mdn gtm sgtm asgtm (mixture generators, parameter-matched to asgtm),
+Models: mdn mr smr asmr (mixture generators, parameter-matched to asmr; old names
+gtm sgtm asgtm are accepted),
 lstm rnn (point forecasters), persistence linear var locf interp (baselines),
 dgan par (external generation baselines; scripts/install_baselines.sh).
 Scores are on the train-min-max scale (the thesis' normalised scale).
@@ -30,7 +31,7 @@ FORECASTERS = ("lstm", "rnn")
 PREDICTION_BASELINES = ("persistence", "linear", "var")
 IMPUTATION_BASELINES = ("locf", "interp")
 GENERATION_BASELINES = ("dgan", "par")
-ALL_MODELS = GENERATORS + FORECASTERS + PREDICTION_BASELINES + IMPUTATION_BASELINES + GENERATION_BASELINES
+ALL_MODELS = GENERATORS + tuple(models.ALIASES) + FORECASTERS + PREDICTION_BASELINES + IMPUTATION_BASELINES + GENERATION_BASELINES
 TASKS = ("prediction", "imputation", "generation")
 N_SAMPLES_CRPS = 100
 N_GENERATED = 500
@@ -113,8 +114,8 @@ def make_model(name: str, series: data.Series, spec: DatasetSpec, hidden: int, r
 
 
 def _budget(series, spec, hidden) -> int:
-    """Every learned model gets the size of ASGTM with the reference width."""
-    cfg = models.ModelConfig(variant="asgtm", hidden=hidden, mixtures=spec.mixtures,
+    """Every learned model gets the size of ASMR with the reference width."""
+    cfg = models.ModelConfig(variant="asmr", hidden=hidden, mixtures=spec.mixtures,
                              embedding=spec.embedding, use_mask=not series.mask.all())
     return models.count_params(models.build(cfg, series.n_nodes, series.n_exo, static_adjacency(series)))
 
@@ -207,7 +208,7 @@ def main(argv=None) -> Path:
     ap.add_argument("--model", required=True, choices=ALL_MODELS)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--epochs", type=int, default=200)
-    ap.add_argument("--hidden", type=int, default=64, help="reference ASGTM width for the parameter budget")
+    ap.add_argument("--hidden", type=int, default=64, help="reference ASMR width for the parameter budget")
     ap.add_argument("--temporal-graph", default="vg", choices=["vg", "hvg", "chain", "complete", "none"])
     ap.add_argument("--edge-weight", default="binary", choices=["binary", "similarity"])
     ap.add_argument("--param", default="auto", choices=["auto", "relative", "absolute"],
@@ -224,6 +225,7 @@ def main(argv=None) -> Path:
     ap.add_argument("--tag", default="", help="suffix for ablation runs, e.g. '-chain'")
     args = ap.parse_args(argv)
     args.tasks = tuple(t for t in args.tasks.split(",") if t)
+    args.model = models.canonical(args.model)
     if bad := set(args.tasks) - set(TASKS):
         ap.error(f"unknown tasks {bad}")
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s %(message)s")

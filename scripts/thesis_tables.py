@@ -25,16 +25,16 @@ LOWER_IS_BETTER = True
 PRED = {"mae": "MAE", "mse": "MSE", "mase": "MASE", "crps": "CRPS"}
 GEN = {"wasserstein": "W$_1$", "mmd_rbf": "MMD$^2$", "acf_distance": "ACF", "cross_corr_distance": "XCorr",
        "discriminative_score": "Disc.", "tstr_ratio": "TSTR", "mem_ratio": "Mem.", "vg_divergence": "VG-div"}
-MAIN = ("persistence", "linear", "var", "lstm", "rnn", "mdn", "gtm", "sgtm", "asgtm")
-GENERATORS = ("var", "dgan", "par", "mdn", "gtm", "sgtm", "asgtm")
-ABLATIONS = ("gtm", "gtm-chain", "gtm-complete", "gtm-hvg", "gtm-simw", "sgtm", "sgtm-randgraph",
-             "asgtm", "asgtm-relative", "asgtm-absolute")
+MAIN = ("persistence", "linear", "var", "lstm", "rnn", "mdn", "mr", "smr", "asmr")
+GENERATORS = ("var", "dgan", "par", "mdn", "mr", "smr", "asmr")
+ABLATIONS = ("mr", "mr-chain", "mr-complete", "mr-hvg", "mr-simw", "smr", "smr-randgraph",
+             "asmr", "asmr-relative", "asmr-absolute")
 ABLATION_METRICS = {"prediction/mae": "Pred. MAE",
                     **{f"generation/vs_train/{k}": GEN[k] for k in ("wasserstein", "mmd_rbf", "acf_distance",
                                                                     "cross_corr_distance", "vg_divergence")}}
-CAPACITY = ("mdn", "mdn-h128", "mdn-h256", "gtm", "gtm-h128", "gtm-h256", "asgtm", "asgtm-h128", "asgtm-h256")
+CAPACITY = ("mdn", "mdn-h128", "mdn-h256", "mr", "mr-h128", "mr-h256", "asmr", "asmr-h128", "asmr-h256")
 NAMES = {"persistence": "Persistence", "linear": "Linear extrap.", "var": "VAR", "lstm": "LSTM", "rnn": "RNN",
-         "mdn": "MDN", "gtm": "GTM", "sgtm": "SGTM", "asgtm": "ASGTM", "locf": "LOCF", "interp": "Interp.$^*$",
+         "mdn": "MDN", "mr": "MR", "smr": "SMR", "asmr": "ASMR", "locf": "LOCF", "interp": "Interp.$^*$",
          "dgan": "DGAN", "par": "PAR"}
 
 
@@ -114,7 +114,7 @@ def imputation_table(table) -> str:
     rows, heads = [], []
     problems = [("Synthetic", "point"), ("Synthetic", "block"), ("Exchange", "point"), ("Exchange", "block"),
                 ("AirQuality", "eval_mask")]
-    cfgs = ("locf", "interp", "lstm", "rnn", "mdn", "gtm", "sgtm", "asgtm")
+    cfgs = ("locf", "interp", "lstm", "rnn", "mdn", "mr", "smr", "asmr")
     cols = [[values(table, ds, c, f"imputation/{p}/mae") for c in cfgs] for ds, p in problems]
     marks = [column_marks(col) for col in cols]
     for ds, p in problems:
@@ -140,7 +140,7 @@ def imputation_table(table) -> str:
 
 
 G = "generation/vs_train/"
-NEURAL = ("mdn", "gtm", "sgtm", "asgtm", "mdn-h128", "gtm-h128", "asgtm-h128", "mdn-h256", "gtm-h256", "asgtm-h256")
+NEURAL = ("mdn", "mr", "smr", "asmr", "mdn-h128", "mr-h128", "asmr-h128", "mdn-h256", "mr-h256", "asmr-h256")
 
 
 def best_neural(table, ds: str) -> str:
@@ -155,31 +155,31 @@ def comparison_list(table) -> list[tuple[str, str, str, str, str]]:
     c: list = []
     for ds in DATASETS:
         for m in ("wasserstein", "mmd_rbf", "acf_distance", "discriminative_score", "vg_divergence"):
-            c.append(("RQ1 VG vs none", ds, "gtm", "mdn", G + m))
-        c += [("RQ1 VG vs none", ds, "gtm", "mdn", k) for k in ("prediction/mae", "prediction/crps")]
-        for ctrl in ("gtm-chain", "gtm-complete"):
-            c += [(f"RQ1 VG vs {ctrl[4:]}", ds, "gtm", ctrl, G + m) for m in ("wasserstein", "acf_distance")]
-        c += [("RQ2 static graph vs none", ds, "sgtm", "gtm", G + "cross_corr_distance"),
-              ("RQ2 static vs random graph", ds, "sgtm", "sgtm-randgraph", G + "cross_corr_distance"),
-              ("RQ2 learned vs static graph", ds, "asgtm", "sgtm", G + "cross_corr_distance")]
+            c.append(("RQ1 VG vs none", ds, "mr", "mdn", G + m))
+        c += [("RQ1 VG vs none", ds, "mr", "mdn", k) for k in ("prediction/mae", "prediction/crps")]
+        for ctrl in ("mr-chain", "mr-complete"):
+            c += [(f"RQ1 VG vs {ctrl.split('-', 1)[1]}", ds, "mr", ctrl, G + m) for m in ("wasserstein", "acf_distance")]
+        c += [("RQ2 static graph vs none", ds, "smr", "mr", G + "cross_corr_distance"),
+              ("RQ2 static vs random graph", ds, "smr", "smr-randgraph", G + "cross_corr_distance"),
+              ("RQ2 learned vs static graph", ds, "asmr", "smr", G + "cross_corr_distance")]
         best = best_neural(table, ds)
         c += [(f"best neural ({best}) vs VAR", ds, best, "var", G + m)
               for m in ("wasserstein", "mmd_rbf", "acf_distance", "cross_corr_distance", "vg_divergence")]
         for ext in ("dgan", "par"):
-            c += [(f"proposed vs {ext.upper()}", ds, a, ext, G + m) for a in ("gtm", "asgtm")
+            c += [(f"proposed vs {ext.upper()}", ds, a, ext, G + m) for a in ("mr", "asmr")
                   for m in ("wasserstein", "mmd_rbf", "acf_distance", "cross_corr_distance")]
     # level parameterisation: chosen (auto) vs the other one
-    for ds, other in (("AirQuality", "asgtm-relative"), ("Synthetic", "asgtm-relative"), ("Exchange", "asgtm-absolute")):
-        c += [("A5 parameterisation (auto vs other)", ds, "asgtm", other, k)
+    for ds, other in (("AirQuality", "asmr-relative"), ("Synthetic", "asmr-relative"), ("Exchange", "asmr-absolute")):
+        c += [("A5 parameterisation (auto vs other)", ds, "asmr", other, k)
               for k in ("prediction/mae", G + "wasserstein", G + "mmd_rbf", G + "acf_distance", G + "vg_divergence")]
     # imputation
     for ds, prob in (("AirQuality", "eval_mask"), ("Synthetic", "block"), ("Synthetic", "point"),
                      ("Exchange", "block"), ("Exchange", "point")):
-        for a in ("gtm", "sgtm", "asgtm"):
+        for a in ("mr", "smr", "asmr"):
             c += [(f"imputation {prob}", ds, a, b, f"imputation/{prob}/mae") for b in ("locf", "interp", "lstm", "mdn")]
     # capacity: each larger budget vs the reference width 64
     for ds in ("AirQuality", "Exchange"):
-        for m in ("mdn", "gtm", "asgtm"):
+        for m in ("mdn", "mr", "asmr"):
             for h in ("h128", "h256"):
                 c += [(f"capacity {h} vs 64", ds, f"{m}-{h}", m, k)
                       for k in ("prediction/mae", G + "wasserstein", G + "mmd_rbf", G + "cross_corr_distance")]
