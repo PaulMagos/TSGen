@@ -4,7 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export PY=${PY:-.venv/bin/python} EPOCHS=${EPOCHS:-200} DEVICE=${DEVICE:-cuda} OUT=${OUT:-results}
-export TAG=${TAG:?set TAG, e.g. -level} EXTRA=${EXTRA:-} TASKS=${TASKS:-prediction,generation}
+export TAG=${TAG?set TAG (may be empty), e.g. -level} EXTRA=${EXTRA:-} TASKS=${TASKS:-prediction,generation}
 DATASETS=${DATASETS:-"synthetic exchange airquality"}
 MODELS=${MODELS:-"mdn gtm sgtm asgtm"}
 SEEDS=${SEEDS:-"0 1 2 3 4"}
