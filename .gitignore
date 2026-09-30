@@ -28,3 +28,4 @@ infra/mlflow/.env
 infra/mlflow/client.env
 infra/mlflow/client-lan.env
 infra/mlflow/.env.tmp
+vendor/

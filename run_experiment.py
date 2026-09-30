@@ -4,7 +4,8 @@
     python run_experiment.py --dataset exchange --model var --seed 0 --tasks prediction,generation
 
 Models: mdn gtm sgtm asgtm (mixture generators, parameter-matched to asgtm),
-lstm rnn (point forecasters), persistence linear var locf interp (baselines).
+lstm rnn (point forecasters), persistence linear var locf interp (baselines),
+dgan par (external generation baselines; scripts/install_baselines.sh).
 Scores are on the train-min-max scale (the thesis' normalised scale).
 """
 
@@ -21,14 +22,15 @@ import numpy as np
 import pandas as pd
 import torch
 
-from tsgen import baselines, data, graphs, inference, metrics, models, train
+from tsgen import baselines, data, external, graphs, inference, metrics, models, train
 from tsgen.tracking import Tracker
 
 GENERATORS = tuple(models.VARIANTS)
 FORECASTERS = ("lstm", "rnn")
 PREDICTION_BASELINES = ("persistence", "linear", "var")
 IMPUTATION_BASELINES = ("locf", "interp")
-ALL_MODELS = GENERATORS + FORECASTERS + PREDICTION_BASELINES + IMPUTATION_BASELINES
+GENERATION_BASELINES = ("dgan", "par")
+ALL_MODELS = GENERATORS + FORECASTERS + PREDICTION_BASELINES + IMPUTATION_BASELINES + GENERATION_BASELINES
 TASKS = ("prediction", "imputation", "generation")
 N_SAMPLES_CRPS = 100
 N_GENERATED = 500
@@ -42,12 +44,13 @@ class DatasetSpec:
     mixtures: int
     embedding: int
     gen_length: int
+    dgan_sample_len: int  # thesis configuration (config/dataset/*.yaml)
 
 
 SPECS = {
-    "Synthetic": DatasetSpec(window=15, mixtures=6, embedding=3, gen_length=63),
-    "Exchange": DatasetSpec(window=20, mixtures=16, embedding=4, gen_length=216),
-    "AirQuality": DatasetSpec(window=23, mixtures=36, embedding=20, gen_length=168),
+    "Synthetic": DatasetSpec(window=15, mixtures=6, embedding=3, gen_length=63, dgan_sample_len=21),
+    "Exchange": DatasetSpec(window=20, mixtures=16, embedding=4, gen_length=216, dgan_sample_len=6),
+    "AirQuality": DatasetSpec(window=23, mixtures=36, embedding=20, gen_length=168, dgan_sample_len=24),
 }
 
 
@@ -174,6 +177,15 @@ def run_baseline(args, series, spec) -> dict:
             t, p = fn(series, "test", w)
         keep = t >= series.split_range("test")[0] + 0
         out["prediction"] = point_scores(series, t[keep], p[keep])
+    if args.model in GENERATION_BASELINES and "generation" in args.tasks:
+        t0 = time.time()
+        if args.model == "dgan":
+            fake = external.dgan_generate(series, spec.gen_length, spec.dgan_sample_len, N_GENERATED,
+                                          args.seed, args.device)
+        else:
+            fake = external.par_generate(series, spec.gen_length, N_GENERATED, args.seed, args.device)
+        out["fit"] = {"seconds": time.time() - t0}
+        out["generation"] = generation_scores(series, fake, spec, args)
     if args.model in IMPUTATION_BASELINES and "imputation" in args.tasks:
         out["imputation"] = {}
         for label, problem in imputation_problems(series, args.seed).items():
